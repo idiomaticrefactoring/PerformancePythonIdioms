@@ -1,0 +1,151 @@
+import sys, ast, os, csv, time, copy
+
+import subprocess
+from pathos.multiprocessing import ProcessingPool as newPool
+
+code_dir = "/".join(os.path.abspath(__file__).split("/")[:-3]) + "/"
+sys.path.append(code_dir)
+sys.path.append(code_dir+"performance/")
+import pandas as pd
+import util, performance_util
+from code_info import CodeInfo
+from scipy.stats import ranksums, mannwhitneyu
+import cliffsDelta
+def save_perf_change(file_name,merge,bench_time_info_dir,save_code_info_dir_add_performance_change):
+
+    file_name_no_suffix = file_name[:-4]
+    lab_code_info = util.load_pkl(bench_time_info_dir, file_name_no_suffix)
+    lab_code_info: CodeInfo
+
+    # print("total_time_list_info_dict: ",total_time_list_info_dict)
+    # for invo in invo_list:
+    lab_code_info.get_performance_improve_info(total_time_list_info_dict=dict(), invocations=invo, steps=100,merge=merge)
+    # print("performance change: ",lab_code_info.total_time_list_info_dict)
+    util.save_pkl(save_code_info_dir_add_performance_change + str(invo) + "/", file_name_no_suffix, lab_code_info)
+    print("save ",save_code_info_dir_add_performance_change + str(invo) + "/", file_name_no_suffix, "successfully")
+    pass
+
+def save_csv_perf_change(save_code_info_dir_add_performance_change,csv_perf_change_dir):
+    dict_pd={
+        "file_html":[],"test_me_inf":[], "code_str":[],'perf_change':[],'RCIW':[],'perf_change_left':[],'perf_change_right':[]
+
+    }
+    print("************perf csv save******************")
+    for file_name in sorted(os.listdir(save_code_info_dir_add_performance_change)):
+        file_name_no_suffix=file_name[:-4]
+        lab_code_info = util.load_pkl(save_code_info_dir_add_performance_change, file_name_no_suffix)
+        lab_code_info: CodeInfo
+        file_html=lab_code_info.file_html
+        code_str=lab_code_info.get_code_str()
+        perf_info_dict=lab_code_info.perf_info_dict
+        print("file_name: ",file_name,perf_info_dict)
+        for test_me in perf_info_dict:
+            for instance in perf_info_dict[test_me]:
+                perf_info=perf_info_dict[test_me][instance]
+                dict_pd["file_html"].append(file_html)
+                dict_pd["test_me_inf"].append(str(test_me)+str(instance))
+                dict_pd["code_str"].append(code_str)
+
+                dict_pd["perf_change"].append(perf_info[0])
+                dict_pd["RCIW"].append(perf_info[3])
+                dict_pd["perf_change_left"].append(perf_info[1])
+                dict_pd["perf_change_right"].append(perf_info[2])
+
+    dataMain = pd.DataFrame(data=dict_pd)
+    # print(">>>>>>drop same features: ", dataMain.keys())
+        # print(dataMain.to_dict())
+    dataMain.to_csv(csv_perf_change_dir+"csv_perf_change_result.csv", index=False)
+def save_simple_to_other():
+    save_file_list = []
+    invo = 50
+    for ind, file_name in enumerate(sorted(os.listdir(bench_time_info_dir)[:])):
+        if file_name=='toolz.itertoolz.join_25.pkl':
+            save_file_list.append(file_name)
+            file_name_no_suffix = file_name[:-4]
+
+            lab_code_info = util.load_pkl(bench_time_info_dir, file_name_no_suffix)
+            lab_code_info.run_test_res_compli_code = dict()
+            util.save_pkl(bench_time_info_dir_new + str(invo) + "/", file_name_no_suffix, lab_code_info)
+            print("save ", bench_time_info_dir_new + str(invo) + "/", file_name_no_suffix, "successfully")
+
+        # if file_name not in file_name_list:
+        #     print(file_name,"is not existed!")
+        # else:
+        #     print("file is existed ",file_name)
+
+    print("some file list: ", set(file_name_list) - set(save_file_list))
+
+if __name__ == '__main__':
+    start_time=time.time()
+    # save_code_info_dir =util.data_root + "performance/chain_compare/chain_compare_iter_invoca_add_perf_change/"
+    bench_time_info_dir=util.data_root + "performance/chain_compare/chain_compare_iter_invoca/"
+    bench_time_info_dir_new=util.data_root_mv + "performance/chain_compare/chain_compare_iter_invoca_new/"
+    bench_time_info_dir=util.data_root_mv + "performance/chain_compare/chain_compare_iter_invoca_new/50/"
+    bench_time_info_dir=util.data_root + "performance/chain_compare/chain_compare_iter_invoca/"
+
+    save_code_info_dir_add_performance_change=util.data_root_mv + "performance/chain_compare/chain_compare_iter_invoca_add_perf_change_new/"
+    save_code_info_dir_add_performance_change=util.data_root_mv + "performance/chain_compare/chain_compare_iter_invoca_add_perf_change_new_remove_outlier/"
+    save_code_info_dir_add_performance_change=util.data_root_mv + "performance/chain_compare/chain_compare_iter_invoca_add_perf_change_new/"
+
+    csv_perf_change_dir=util.data_root + "performance/chain_compare/csv/"
+    error_code_dir = util.data_root_mv + "performance/chain_compare/erro_record_dir/"
+    time_out_dir = util.data_root + "performance/chain_compare/time_out_record_dir/"
+
+    time_out_list_filter= [e[-1] for e in util.load_pkl(time_out_dir, "time_out_code_info")]
+    case_is_true_list_filter=[e[-1] + "_" + str(e[1]) for e in util.load_pkl(error_code_dir, "error_code_is_true_info")]
+    time_out_list_filter_2= [e[-1] for e in util.load_pkl(time_out_dir, "time_out_code_info_2")]
+    case_is_true_list_filter_2=[e[-1] + "_" +str( e[1]) for e in util.load_pkl(error_code_dir, "error_code_is_true_info_2")]#util.load_pkl(error_code_dir, "error_code_is_true_info_2", )
+
+    print("time_out_list_filter,case_is_true_list_filter: ",time_out_list_filter,"----\n",case_is_true_list_filter)
+    print("time_out_list_filter_2,case_is_true_list_filter_2: ",time_out_list_filter_2,"----\n",case_is_true_list_filter_2)
+    filter_file_name=time_out_list_filter+case_is_true_list_filter+time_out_list_filter_2+case_is_true_list_filter_2
+    print(">>>>>>>>>case is true and time out file info: ",len(filter_file_name),filter_file_name)
+    file_name_list=[]
+    filter_num=0
+    invo = 50
+    too_large_file=['toolz.itertoolz.join_25.pkl','toolz.itertoolz.join_26.pkl']
+    case_is_true_list_filter = [7, 33, 37, 51, 63, 73, 75, 77, 79, 100,
+                                110, 111, 112, 113, 137, 138, 147, 150, 159,
+                                164, 165, 169,
+                                214, 231, 242, 244, 246, 271, 272, 293, 294, 295, 306, 307, 308]
+    print(">>>>>>>>>len filter before: ",len(case_is_true_list_filter))
+    for ind, file_name in enumerate(sorted(os.listdir(bench_time_info_dir)[:])):
+        # print("file_name: ",file_name[:-4].split("_")[-1])
+        # break
+        if file_name[:-4] in filter_file_name:
+            filter_num+=1
+            continue
+        # elif int(file_name[:-4].split("_")[-1]) in case_is_true_list_filter:
+        #     filter_num += 1
+        #     continue
+        file_name_list.append(file_name)
+    #     if ind>2:
+    #         break
+    # pass
+    print("total file name: ",len(os.listdir(bench_time_info_dir)[:]),len(file_name_list),filter_num)
+    save_file_list=[]
+    invo=50
+    for ind, file_name in enumerate(sorted(os.listdir(save_code_info_dir_add_performance_change+"50/")[:])):
+        save_file_list.append(file_name)
+        file_name_no_suffix = file_name[:-4]
+
+
+        # if file_name not in file_name_list:
+        #     print(file_name,"is not existed!")
+        # else:
+        #     print("file is existed ",file_name)
+
+    print("some file list: ",set(file_name_list)-set(save_file_list),len(set(file_name_list)-set(save_file_list)))
+    # save_simple_to_other()
+    '''
+    merge_list, bench_time_info_dir_list, save_code_info_dir_add_performance_change_list=\
+        [1 for i in range(len(file_name_list))],[bench_time_info_dir for i in range(len(file_name_list))],[save_code_info_dir_add_performance_change for i in range(len(file_name_list))]
+    pool = newPool(nodes=30)
+    # pool.map(save_perf_change, file_name_list[:1],merge_list[:1],bench_time_info_dir_list[:1],save_code_info_dir_add_performance_change_list[:1])  # [:3]sample_repo_url ,token_num_list[:1]
+    pool.map(save_perf_change, file_name_list[:],merge_list[:],bench_time_info_dir_list[:],save_code_info_dir_add_performance_change_list[:])  # [:3]sample_repo_url ,token_num_list[:1]
+    pool.close()
+    pool.join()
+    '''
+
+    # save_csv_perf_change(save_code_info_dir_add_performance_change+str(invo)+"/", csv_perf_change_dir)
+    print("total project time: ",time.time()-start_time)
